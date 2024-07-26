@@ -1,7 +1,18 @@
+from cachetools import cached
+
 import cv2
+import numpy as np
 from cv2 import dnn_superres
 
-def upscale(input_path: str, output_path: str, model_path: str = 'EDSR_x2.pb') -> None:
+@cached({})
+def get_scaler(model_path: str) -> dnn_superres.DnnSuperResImpl:
+    scaler = dnn_superres.DnnSuperResImpl.create()
+    scaler.readModel(model_path)
+    scaler.setModel("edsr", 2)
+
+    return scaler
+
+def upscale(input_file: bytes, format: str, model_path: str = "EDSR_x2.pb") -> bytes:
     """
     :param input_path: путь к изображению для апскейла
     :param output_path:  путь к выходному файлу
@@ -9,17 +20,16 @@ def upscale(input_path: str, output_path: str, model_path: str = 'EDSR_x2.pb') -
     :return:
     """
 
-    scaler = dnn_superres.DnnSuperResImpl_create()
-    scaler.readModel(model_path)
-    scaler.setModel("edsr", 2)
-    image = cv2.imread(input_path)
-    result = scaler.upsample(image)
-    cv2.imwrite(output_path, result)
+    scaler = get_scaler(model_path)
+    nparr = np.frombuffer(input_file, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    _, result = cv2.imencode(format, scaler.upsample(image))
+    
+    return result.tobytes()
 
+if __name__ == "__main__":
+    with open("file.png", "rb") as file:
+        result = upscale(file.read())
 
-def example():
-    upscale('lama_300px.png', 'lama_600px.png')
-
-
-if __name__ == '__main__':
-    example()
+    with open("new_file.png", "wb") as file:
+        file.write(result)

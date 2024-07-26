@@ -22,11 +22,10 @@ MONGO_USER = dotenv_values(".env")["MONGO_USER"]
 MONGO_PASSWORD = dotenv_values(".env")["MONGO_PASSWORD"]
 MONGO_HOST = dotenv_values(".env")["MONGO_HOST"]
 MONGO_PORT = dotenv_values(".env")["MONGO_PORT"]
-MONGO_DB = dotenv_values(".env")["MONGO_DB"]
 
-POSTGRES_DSN = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+POSTGRES_DSN = f"db+postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 REDIS_DSN = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
-MONGO_DSN = f"mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{MONGO_HOST}:{MONGO_PORT}/{MONGO_DB}"
+MONGO_DSN = f"mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{MONGO_HOST}:{MONGO_PORT}/files?authSource=admin"
 
 APP_NAME = dotenv_values(".env")["APP_NAME"]
 
@@ -34,7 +33,8 @@ APP_NAME = dotenv_values(".env")["APP_NAME"]
 celery_app = Celery(
     APP_NAME,
     broker=REDIS_DSN,
-    backend=POSTGRES_DSN
+    backend=POSTGRES_DSN,
+    broker_connection_retry_on_startup=True
 )
 
 
@@ -47,9 +47,15 @@ def get_fs() -> GridFS:
     return GridFS(mongo["files"])
 
 @celery_app.task
-def upscaler(image_id: str) -> None:
+def upscaler(image_id: str) -> str:
     files = get_fs()
 
-    return upscale(
-        files.get(ObjectId(image_id), f"upscaled_{image_id}")
-    )
+    with files.get(ObjectId(image_id)) as file:
+        format = f".{file.filename.split(".")[-1]}"
+
+        upscaled_image = upscale(
+            file.read(),
+            format
+        )
+    
+    return str(files.put(upscaled_image, filename=f"upscaled_{file.filename}"))
